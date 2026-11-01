@@ -246,7 +246,7 @@
   const normalizePackageValue = (value) => {
     if (typeof value !== "string") return "";
     const normalized = value.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-    if (["landing-page", "starter-website", "business-website", "care-plan", "not-sure"].includes(normalized)) {
+    if (["landing-page", "starter-website", "business-website", "care-plan", "digital-presence", "not-sure"].includes(normalized)) {
       return normalized;
     }
     const map = {
@@ -256,6 +256,8 @@
       business: "business-website",
       care: "care-plan",
       "website-care": "care-plan",
+      digitalpresence: "digital-presence",
+      "presence-essentials": "digital-presence",
       "not-sure-yet": "not-sure",
       unsure: "not-sure",
       "talk-it-through": "not-sure",
