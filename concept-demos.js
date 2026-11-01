@@ -2,6 +2,7 @@
   "use strict";
 
   const demos = [...document.querySelectorAll("[data-demo]")];
+  const catalog = document.querySelector("[data-demo-catalog]");
   const live = document.querySelector("[data-demo-live]");
   if (!demos.length) return;
 
@@ -30,8 +31,14 @@
     const active = target?.closest("[data-demo]") || null;
     const changed = active !== current;
     demos.forEach((demo) => {
-      demo.hidden = active ? demo !== active : false;
+      demo.hidden = active ? demo !== active : true;
     });
+    if (active) {
+      active.querySelectorAll('img[loading="lazy"]').forEach((image) => {
+        image.loading = "eager";
+      });
+    }
+    if (catalog) catalog.hidden = Boolean(active);
     current = active;
 
     if (target) {

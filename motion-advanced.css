@@ -141,9 +141,8 @@
     translate: 0 var(--py, 0px);
   }
 
-  /* Hero stage: .stage already supplies perspective (styles.css), so the
-     browser only needs the rotation. overflow: clip for the same reason as
-     .tile above. */
+  /* The stage supplies perspective; motion-advanced.js applies the rotations
+     directly to the browser, matching the original pointer-driven effect. */
   .browser {
     overflow: hidden;
     overflow: clip;
@@ -222,10 +221,31 @@
   }
 }
 
-/* No-motion baseline: keep the press feedback, nothing animated */
+/* Keep interaction colours, but remove button movement while motion is reduced.
+   The base stylesheet also applies a hover transform outside this file. */
 @media (prefers-reduced-motion: reduce) {
-  .button:active {
-    transform: scale(0.97);
+  .tile:hover,
+  .tile.reveal:hover,
+  .tile:hover > h3,
+  .tile:hover > .number,
+  .tile:hover > a:not(.button),
+  .feature-list li:hover,
+  .button:hover,
+  .button:active,
+  .button--quiet:hover,
+  .button--quiet:active {
+    transform: none;
+    translate: none;
+    scale: none;
+  }
+
+  .nav-links a:not(.button):hover::after,
+  .brand:hover .brand-mark {
+    transform: none;
+  }
+
+  .button:hover::before {
+    transform: translateX(-120%);
   }
 }
 
@@ -454,25 +474,150 @@
 
 
 /* ---- Ambient hero canvas --------------------------------------------------- */
-/* Keep the canvas anchored to the hero and in its own stacking context, so
-  z-index -1 places it behind the content without hiding it behind the page. */
-.hero {
-  position: relative;
-  isolation: isolate;
-}
-
+/* styles.css already gives .hero position: relative and isolation: isolate, so
+   z-index -1 keeps the canvas behind the hero text and above the hero glow.
+   The canvas stays within the hero to avoid introducing horizontal overflow. */
 .hero-3d-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: -1;
-  opacity: 0.85;
+  z-index: 0;
+  opacity: 1;
 }
 
-/* styles.css staggers every direct child of .hero with fadeUp. The canvas is
-   decoration, so it opts out and keeps its own opacity. */
+/* Keep the ambient scene visible between the hero background and its content. */
+.hero > :not(.hero-3d-canvas) {
+  position: relative;
+  z-index: 1;
+}
+
+/* styles.css staggers every direct child of .hero with fadeUp. */
 .hero > .hero-3d-canvas {
   animation: none;
+}
+
+@media (max-width: 600px) {
+  .hero {
+    padding: 48px 0 30px;
+  }
+
+  .hero .eyebrow {
+    margin-bottom: 14px;
+  }
+
+  .hero .intro {
+    margin-bottom: 20px;
+  }
+
+  .hero .microcopy {
+    margin-top: 14px;
+  }
+
+  .hero .actions {
+    gap: 4px;
+  }
+
+  .hero .actions > .button {
+    padding-inline: 14px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .hero .actions > .button--quiet {
+    padding-inline: 4px;
+  }
+
+  .stage {
+    margin-top: 10px;
+    touch-action: pan-y;
+  }
+
+  .stage .browser {
+    min-height: 0;
+  }
+
+  .stage .demo-site {
+    min-height: 180px;
+    padding: 16px 12px;
+  }
+
+  .stage .demo-product {
+    height: 110px;
+  }
+
+  .hero ~ .section {
+    padding-block: 48px;
+  }
+
+  .hero ~ .section .section-head {
+    margin-bottom: 24px;
+  }
+
+  .hero ~ .section .section-head h2 {
+    font-size: clamp(32px, 9vw, 42px);
+  }
+
+  .hero ~ .section .section-head > p:not(.eyebrow) {
+    font-size: 15px;
+  }
+
+  .hero ~ .section:not(#services, #process) .section-head > p:not(.eyebrow) {
+    display: none;
+  }
+
+  #services .grid-3,
+  #process .grid-3 {
+    gap: 10px;
+  }
+
+  #services .tile,
+  #process .tile {
+    display: grid;
+    grid-template-columns: minmax(76px, 0.32fr) minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-items: start;
+    gap: 4px 12px;
+    padding: 16px;
+  }
+
+  #services .tile .number,
+  #process .tile .number {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    margin: 3px 0 0;
+    font-size: 10px;
+    line-height: 1.35;
+  }
+
+  #services .tile h3,
+  #process .tile h3 {
+    grid-column: 2;
+    grid-row: 1;
+    margin: 0;
+  }
+
+  #services .tile p,
+  #process .tile p {
+    grid-column: 2;
+    grid-row: 2;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  #services .tile > a {
+    grid-column: 2;
+    margin: 8px 0 0;
+    font-size: 13px;
+  }
+
+  #process .tile {
+    grid-template-rows: auto auto;
+  }
+
+  .cta-band {
+    padding: 26px;
+  }
 }
