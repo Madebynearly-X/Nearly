@@ -17,6 +17,8 @@ test("normalizeText trims and truncates input safely", () => {
 test("package values are normalized against the supported offer list", () => {
   assert.equal(normalizePackage("Landing page"), "landing-page");
   assert.equal(normalizePackage("care plan"), "care-plan");
+  assert.equal(normalizePackage("digital-presence"), "digital-presence");
+  assert.equal(normalizePackage("Presence Essentials"), "digital-presence");
   assert.equal(normalizePackage("script>alert(1)</script>"), null);
 });
 
