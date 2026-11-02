@@ -306,11 +306,65 @@
   const list = form.querySelector("[data-error-list]");
   const live = form.querySelector("[data-live]");
   const success = form.querySelector("[data-form-success]");
+  let isSubmitting = false;
+  const turnstileContainer = form.querySelector("#enquiry-turnstile");
+  let resetTurnstile = () => {};
+
+  if (turnstileContainer && window.turnstile) {
+    let turnstileWidgetId = null;
+    let renderVersion = 0;
+    resetTurnstile = () => {
+      if (turnstileWidgetId !== null) window.turnstile.reset(turnstileWidgetId);
+    };
+    const renderTurnstile = () => {
+      const currentVersion = ++renderVersion;
+      window.turnstile.ready(() => {
+        if (currentVersion !== renderVersion) return;
+        if (turnstileWidgetId !== null) window.turnstile.remove(turnstileWidgetId);
+        turnstileWidgetId = window.turnstile.render(turnstileContainer, {
+          sitekey: turnstileContainer.dataset.sitekey,
+          action: turnstileContainer.dataset.action,
+          theme: document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+        });
+      });
+    };
+
+    renderTurnstile();
+    window.addEventListener("nearly:themechange", renderTurnstile);
+  }
+
+  const showError = (message) => {
+    if (summary && list) {
+      list.replaceChildren();
+      const item = document.createElement("li");
+      item.textContent = message;
+      list.append(item);
+      summary.hidden = false;
+      summary.focus();
+    }
+    if (live) live.textContent = message;
+  };
+
+  form.addEventListener("invalid", (event) => {
+    if (live && event.target.validationMessage) {
+      live.textContent = event.target.validationMessage;
+    }
+  }, true);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (isSubmitting) return;
 
-    if (!form.reportValidity()) return;
+    if (!form.reportValidity()) {
+      if (live) live.textContent = "Please correct the highlighted fields before sending your enquiry.";
+      return;
+    }
+
+    const packageValue = packageField ? packageField.value.trim() : "";
+    if (packageValue && !["landing-page", "starter-website", "business-website", "care-plan", "not-sure"].includes(packageValue)) {
+      showError("Please choose a valid service or leave the field blank.");
+      return;
+    }
 
     if (summary && list) {
       list.replaceChildren();
@@ -319,8 +373,10 @@
     if (success) success.hidden = true;
 
     const previousLabel = submit.textContent;
+    isSubmitting = true;
     submit.disabled = true;
     submit.textContent = "Sending…";
+    if (live) live.textContent = "Sending your enquiry…";
 
     try {
       const response = await fetch(form.action, {
@@ -332,11 +388,15 @@
       try {
         result = await response.json();
       } catch {
-        throw new Error("We couldn't confirm delivery. Please try again or email us directly.");
+        throw new Error("The server returned an unreadable response. We couldn't confirm delivery; please try again or email madebynearly@gmail.com.");
       }
 
-      if (!response.ok || result.success !== true) {
-        throw new Error(result.message || "We couldn't send your enquiry. Please try again.");
+      if (!response.ok || !result || typeof result !== "object" || result.success !== true) {
+        const code = result && (result.error?.code || result.code);
+        const message = code === "configuration_missing"
+          ? "The enquiry form is not configured yet. Please email madebynearly@gmail.com directly."
+          : result?.message || "The server couldn't confirm your enquiry. Please try again or email madebynearly@gmail.com.";
+        throw new Error(message);
       }
 
       form.reset();
@@ -358,19 +418,13 @@
     } catch (error) {
       const message = error instanceof Error && error.name === "Error"
         ? error.message
-        : "We couldn't confirm your enquiry was sent. Please try again or email us directly.";
-
-      if (summary && list) {
-        const item = document.createElement("li");
-        item.textContent = message;
-        list.append(item);
-        summary.hidden = false;
-        summary.focus();
-      }
-      if (live) live.textContent = message;
+        : "We couldn't confirm your enquiry was sent. Please try again or email madebynearly@gmail.com.";
+      showError(message);
     } finally {
+      isSubmitting = false;
       submit.disabled = false;
       submit.textContent = previousLabel;
+      resetTurnstile();
     }
   });
 })();
