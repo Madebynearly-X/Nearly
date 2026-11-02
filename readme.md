@@ -16,11 +16,12 @@ A static, responsive website with an Apple-inspired minimalist direction (withou
 
 ## Files
 - `styles.css` — shared responsive design system
+- `theme.css` and `theme.js` — shared light/dark theme tokens, system preference, accessible navigation toggle and saved local preference
 - `concept-demos.css` and `concept-demos.js` — scoped styling and hash-based navigation for the sample websites
 - `assets/demo-home-services.jpg` and `assets/demo-fitness-studio.jpg` — Unsplash stock photos used in the illustrative concepts
 - `_headers` — Cloudflare Pages security headers and Content Security Policy
-- `script.js` — mobile navigation, reveal-on-scroll, year and form validation/submission
-- `contact-form.js` — enquiry submission and international phone country-code picker; country flags load as Twemoji SVGs from cdnjs
+- `script.js` — mobile navigation, reveal-on-scroll, year and shared form validation
+- `contact-form.js` — enquiry submission, server response states and international phone country-code picker; country flags load as Twemoji SVGs from cdnjs
 - `functions/api/enquiry.js` — server-side Web3Forms delivery, enquiry validation, rate limiting and optional authenticated Google Sheets lead recording
 - `functions/api/leads-summary.js` — Cloudflare Access-authenticated lead summary endpoint for the operations dashboard
 - `functions/api/auth.js` — authentication utilities for client portal
@@ -39,10 +40,14 @@ A static, responsive website with an Apple-inspired minimalist direction (withou
 - The hero stage tilt lives only in `motion-advanced.js`. Do not add a second tilt in `script.js`: an inline transform there overrides the CSS variables and the two fight.
 - `_headers` caches `.css` and `.js` for a year as immutable, so bump the `?v=` number on every page whenever either file changes.
 
+## Display theme
+
+The public pages provide light and dark themes. The first visit follows the device colour preference; the navigation toggle switches immediately and saves a manual choice in browser local storage using `nearly-theme`. The preference is local to the browser and is not used for analytics. `theme.js` is loaded early to apply a saved choice before page styles render. The separate operations dashboard is intentionally not affected.
+
 ## Before publishing
 1. Confirm prices, timelines, included deliverables, revision limits and care plan terms.
 2. Confirm public contact details.
-3. The enquiry form uses a Cloudflare Pages Function at `/api/enquiry` to send enquiries through Web3Forms. Create a Web3Forms access key for `madebynearly@gmail.com`, then add it to the Cloudflare Pages project's **Settings → Variables and Secrets** as the encrypted secret `WEB3FORMS_ACCESS_KEY`. Never commit the key. Redeploy after configuring the secret. The form reports success only when Web3Forms accepts the submission; confirm delivery in Gmail and check Spam during the first live test. To email an enquiry copy to the person who submitted it, configure and test Web3Forms' autoresponder in its dashboard; the provider documents this as a Pro/Agency feature that only works on production websites.
+3. The enquiry form uses a Cloudflare Pages Function at `/api/enquiry` to send enquiries through Web3Forms. In Cloudflare Pages **Settings → Variables and Secrets**, configure `TURNSTILE_SECRET_KEY` and `WEB3FORMS_ACCESS_KEY` as encrypted secrets for each environment where the form should work. The Turnstile site key in `contact.html` is public; never put the secret or Web3Forms access key in source control or browser code. Redeploy after configuring secrets. The form reports success only when Web3Forms accepts the submission; confirm delivery in Gmail and check Spam during the first live test. Google Sheets is optional: configure both `GOOGLE_SHEETS_WEBHOOK_URL` and `GOOGLE_SHEETS_WEBHOOK_TOKEN` or leave both unset. If the email provider accepts an enquiry but Sheets cannot confirm recording, the visitor sees that partial status. Automated tests use mocked providers only; no live email or Sheets delivery has been verified. To email an enquiry copy to the person who submitted it, configure and test Web3Forms' autoresponder in its dashboard; the provider documents this as a Pro/Agency feature that only works on production websites.
 4. Keep `privacy.html` accurate as your data handling, service providers, and retention practices change.
 5. Replace illustrative mockups with real work as you have permission to publish it. Concept work should remain clearly labelled.
 6. Choose and connect a custom domain and matching business email. Update the canonical and Open Graph URLs from `nearly-x.pages.dev` on all indexable pages, and add the custom hostname to the Turnstile widget before launch.
@@ -51,7 +56,7 @@ A static, responsive website with an Apple-inspired minimalist direction (withou
 
 ## Enquiry spam protection
 
-The contact form includes a honeypot field and Cloudflare Turnstile. Turnstile must be validated server-side; the Pages Function does this through Cloudflare Siteverify and checks the configured hostname and `enquiry` action before sending anything to email or Sheets.
+The contact form includes a honeypot field and Cloudflare Turnstile. Turnstile must be validated server-side; the Pages Function does this through Cloudflare Siteverify and checks the configured hostname and `enquiry` action before sending anything to email or Sheets. Its widget is explicitly rendered so its appearance follows the selected site theme; changing themes refreshes the challenge, so solve the current challenge before submitting.
 
 Before deploying the Turnstile integration:
 1. Create a Turnstile widget for `nearly-x.pages.dev` and any custom domain you use. Use Managed mode and do not enable pre-clearance.
@@ -102,6 +107,10 @@ See `docs/CLIENT_PORTAL_SETUP.md` for complete setup instructions including:
 ### Admin API
 
 Admin endpoints for creating clients and projects are documented in `docs/ADMIN_API.md`.
+
+## Tests
+
+Run the public Pages tests with `npm test`. Run the separate marketing Worker suite with `cd agent && npm test`.
 
 ## Accessibility
 The site includes a skip link, named primary navigation, keyboard-visible focus indicators, keyboard-operable enquiry controls, semantic page landmarks, and reduced-motion support. These code improvements are not a legal ADA compliance certification or a complete WCAG conformance audit; test with assistive technologies and users, and review applicable legal requirements before making a compliance claim.

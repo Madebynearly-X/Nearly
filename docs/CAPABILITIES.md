@@ -4,6 +4,19 @@ Checked: 2026-10-10.
 
 LinkedIn's text-post API and OAuth prerequisites were checked against official documentation. This verifies the documented API shape only; no LinkedIn app, product access, account connection, or live post has been verified. Other platform API or video-tool facts remain unverified.
 
+## Public Pages platform checks
+
+Checked: 2026-11-02.
+
+Cloudflare Pages documents `_routes.json` `include`/`exclude` rules as controlling when Pages Functions are invoked; wildcard routes match path segments and exclusions take priority. The site configuration now includes only `/api/*`, so static page and asset paths are outside the Function invocation routes. This is verified against the repository configuration and local route tests, not a deployed Pages request.
+
+Cloudflare Turnstile supports explicit rendering with `?render=explicit`; its render options include `theme: "light"` and `theme: "dark"`, and the API supports removing and resetting a widget. The enquiry form uses this to keep the widget aligned with the selected site theme and renew its token after submission. The documented behavior does not verify the production site key, secret, domain allowlist, or successful live verification.
+
+| Platform | Facts checked | Official source | Checked |
+|---|---|---|---|
+| Cloudflare Pages Functions | `_routes.json` include/exclude behavior, wildcard matching, and exclusion precedence | [Pages Functions routing](https://developers.cloudflare.com/pages/functions/routing/) | 2026-11-02 |
+| Cloudflare Turnstile | Explicit rendering, supported light/dark theme values, and widget lifecycle operations | [Client-side rendering](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/) | 2026-11-02 |
+
 | Category | Tool/platform | Connection state | Facts | Official source URL | Checked |
 |---|---|---|---|---|---|
 | Social publishing | Instagram | Not connected | unverified | Not checked | Not checked |

@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f5f5f7">
+  <script src="/theme.js?v=1"></script>
   <title>Start a website project | NEARLY Studio</title>
   <meta name="description" content="Talk to NEARLY Studio about landing page design, business websites or website care. Based in South Africa and working worldwide.">
   <meta property="og:title" content="Start a website project | NEARLY Studio">
@@ -21,8 +22,9 @@
   <link rel="canonical" href="https://nearly-x.pages.dev/contact">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="styles.css?v=4">
 <link rel="stylesheet" href="motion-advanced.css?v=9">
-  <script src="script.js?v=4" defer></script><script src="motion-advanced.js?v=9" defer></script>  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
-  <script src="contact-form.js" defer></script>
+  <script src="script.js?v=4" defer></script><script src="motion-advanced.js?v=9" defer></script>  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
+  <script src="contact-form.js?v=3" defer></script>
+  <link rel="stylesheet" href="/theme.css?v=1">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -100,14 +102,14 @@
               <p class="field__error" id="q-details-error" data-error hidden></p>
             </div>
           </div>
-          <div class="turnstile-wrap"><div class="cf-turnstile" data-sitekey="0x4AAAAAAFScENben8LGt0cG" data-action="enquiry" data-theme="light"></div></div>
+          <div class="turnstile-wrap"><div class="cf-turnstile" id="enquiry-turnstile" data-sitekey="0x4AAAAAAFScENben8LGt0cG" data-action="enquiry" data-theme="light"></div></div>
           <button class="button form-submit" type="submit">Send enquiry</button>
           <p class="form-note">We use your details to respond to your enquiry and manage follow-up. Unsuccessful enquiries are removed within 12 months of last meaningful contact. <a href="privacy.html">Read our privacy notice.</a></p>
           <div class="form-success" tabindex="-1" data-form-success hidden>
             <h3>Thanks for reaching out.</h3>
             <p>Your enquiry has been received. We'll reply by email within one working day. If you don't see our reply, please check your spam folder.</p>
           </div>
-          <p class="visually-hidden" aria-live="polite" data-live></p>
+          <p class="visually-hidden" role="status" aria-live="polite" aria-atomic="true" data-live></p>
         </form>
       </div>
     </section>
