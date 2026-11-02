@@ -368,6 +368,13 @@
       return;
     }
 
+    const formData = new FormData(form);
+    const turnstileToken = formData.get("cf-turnstile-response");
+    if (typeof turnstileToken !== "string" || !turnstileToken.trim()) {
+      showError("Please complete the security check before sending your enquiry.");
+      return;
+    }
+
     if (summary && list) {
       list.replaceChildren();
       summary.hidden = true;
@@ -384,7 +391,7 @@
       const response = await fetch(form.action, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(Object.fromEntries(new FormData(form))),
+        body: JSON.stringify(Object.fromEntries(formData)),
       });
       let result;
       try {

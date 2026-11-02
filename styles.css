@@ -56,6 +56,9 @@
 .turnstile-wrap{display:flex;justify-content:center;min-height:65px;margin-top:18px}
 .next-steps .tile h3{max-width:15ch}.testimonial-card{max-width:760px;margin:auto;padding:36px 42px;background:#fff;border-radius:26px;text-align:center;box-shadow:var(--shadow)}.testimonial-card blockquote{margin:0;font:600 clamp(24px,4vw,38px)/1.15 Manrope,sans-serif;letter-spacing:-.05em}.testimonial-card figcaption{margin-top:20px;color:var(--muted);font-size:14px}
 
+.button{cursor:pointer;pointer-events:auto}
+.button:disabled{cursor:not-allowed;opacity:.58;filter:saturate(.6)}
+
 /* Payment plans: reuses .section, .section-head, .grid-3, .tile, .faq and .button; only the bits below are new */
 .plan-banner{display:block;background:var(--ink);color:#f5f5f7;text-align:center;font-size:13px;line-height:1.4;padding:10px 16px}
 .plan-banner strong{color:#fff;font-weight:600}
