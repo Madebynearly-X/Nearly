@@ -16,7 +16,25 @@ const RATE_LIMIT_WINDOW_MS = 1000 * 60 * 15;
 const MAX_REQUESTS_PER_WINDOW = 6;
 const requestHistory = new Map();
 
-function json(body, status = 200) {
+function json(body, status = 200, errorCode) {
+  if (body.success === false) {
+    const code = errorCode || body.code || ({
+      400: "validation_failed",
+      403: "verification_failed",
+      405: "method_not_allowed",
+      409: "duplicate_submission",
+      413: "request_too_large",
+      415: "invalid_content_type",
+      429: "rate_limited",
+      502: "provider_failed",
+      503: "service_unavailable",
+    }[status] || "request_failed");
+    body = {
+      ...body,
+      code,
+      error: { code, message: body.message },
+    };
+  }
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
 
@@ -53,6 +71,10 @@ function checkDuplicateSubmission(fields) {
   }
   requestHistory.set(`dedupe:${dedupeKey}`, now);
   return true;
+}
+
+function releaseDuplicateSubmission(fields) {
+  requestHistory.delete(`dedupe:${createDedupeKey(fields)}`);
 }
 
 async function recordEnquiryInGoogleSheet(env, fields, countryCode) {
@@ -183,42 +205,35 @@ export async function onRequestPost({ request, env }) {
     return json({ success: false, message: "The form submission is too large." }, 413);
   }
 
-  let rawBody;
+  let requestBody;
   try {
-    rawBody = await request.text();
+    const rawBody = await request.clone().text();
+    if (new TextEncoder().encode(rawBody).byteLength > 20_000) {
+      return json({ success: false, message: "The form submission is too large." }, 413);
+    }
+    requestBody = await request.json();
   } catch {
     return json({ success: false, message: "Please check the form and try again." }, 400);
   }
 
-  if (rawBody.length > 20_000) {
-    return json({ success: false, message: "The form submission is too large." }, 413);
-  }
-
-  let data;
-  try {
-    data = JSON.parse(rawBody);
-  } catch {
+  if (!requestBody || typeof requestBody !== "object" || Array.isArray(requestBody)) {
     return json({ success: false, message: "Please check the form and try again." }, 400);
   }
 
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    return json({ success: false, message: "Please check the form and try again." }, 400);
-  }
-
-  if (readField(data, "_honey", 500)) {
+  if (readField(requestBody, "_honey", 500)) {
     return json({ success: false, message: "Please check the form and try again." }, 400);
   }
 
   const fields = {
-    name: readField(data, "name", 120),
-    email: readField(data, "email", 254),
-    phone: readField(data, "phone", 50),
-    business: readField(data, "business", 160),
-    package: readField(data, "package", 80),
-    details: readField(data, "details", 5000),
-    source: readField(data, "source", 80),
+    name: readField(requestBody, "name", 120),
+    email: readField(requestBody, "email", 254),
+    phone: readField(requestBody, "phone", 50),
+    business: readField(requestBody, "business", 160),
+    package: readField(requestBody, "package", 80),
+    details: readField(requestBody, "details", 5000),
+    source: readField(requestBody, "source", 80),
   };
-  const countryCode = readField(data, "country_code", 5);
+  const countryCode = readField(requestBody, "country_code", 5);
 
   if (!fields.name || !fields.email || !fields.details) {
     return json({ success: false, message: "Please complete the required fields." }, 400);
@@ -228,9 +243,12 @@ export async function onRequestPost({ request, env }) {
     return json({ success: false, message: "Please enter a valid email address." }, 400);
   }
 
-  const normalizedPackage = normalizePackage(fields.package) || "not-sure";
+  const normalizedPackage = normalizePackage(fields.package);
+  if (fields.package && !normalizedPackage) {
+    return json({ success: false, message: "Please choose a valid service or leave the field blank." }, 400);
+  }
   const normalizedSource = normalizeSource(fields.source || "website");
-  fields.package = normalizedPackage;
+  fields.package = normalizedPackage || "not-sure";
   fields.source = normalizedSource;
 
   if (fields.phone && !/^\+\d{1,3}$/.test(countryCode)) {
@@ -241,16 +259,12 @@ export async function onRequestPost({ request, env }) {
     return json({ success: false, message: "Too many submissions have been sent from this address recently. Please email us directly." }, 429);
   }
 
-  if (!checkDuplicateSubmission(fields)) {
-    return json({ success: false, message: "This enquiry looks like a duplicate of one we already received. Please allow a moment and try again or email us directly." }, 409);
-  }
-
   if (!env.TURNSTILE_SECRET_KEY) {
     console.error("Enquiry form is not configured: TURNSTILE_SECRET_KEY is missing.");
-    return json({ success: false, message: "The security check is temporarily unavailable. Please email us directly." }, 503);
+    return json({ success: false, message: "The security check is temporarily unavailable. Please email us directly." }, 503, "configuration_missing");
   }
 
-  const turnstileToken = readField(data, "cf-turnstile-response", 2048);
+  const turnstileToken = readField(requestBody, "cf-turnstile-response", 2048);
   if (!turnstileToken) {
     return json({ success: false, message: "Please complete the security check and try again." }, 400);
   }
@@ -269,7 +283,11 @@ export async function onRequestPost({ request, env }) {
 
   if (!env.WEB3FORMS_ACCESS_KEY) {
     console.error("Enquiry form is not configured: WEB3FORMS_ACCESS_KEY is missing.");
-    return json({ success: false, message: "The enquiry form is temporarily unavailable. Please email us directly." }, 503);
+    return json({ success: false, message: "The enquiry form is temporarily unavailable. Please email us directly." }, 503, "configuration_missing");
+  }
+
+  if (!checkDuplicateSubmission(fields)) {
+    return json({ success: false, message: "This enquiry looks like a duplicate of one we already received. Please allow a moment and try again or email us directly." }, 409);
   }
 
   const leadId = buildLeadId();
@@ -294,7 +312,7 @@ export async function onRequestPost({ request, env }) {
     });
   } catch (error) {
     console.error("Web3Forms request failed.", error);
-    return json({ success: false, message: "We couldn't send your enquiry just now. Please try again or email us directly." }, 502);
+    return json({ success: false, message: "We couldn't confirm whether your enquiry was delivered. Please email us directly before submitting again to avoid a duplicate." }, 502);
   }
 
   let result;
@@ -302,13 +320,14 @@ export async function onRequestPost({ request, env }) {
     result = await providerResponse.json();
   } catch (error) {
     console.error("Web3Forms returned an unreadable response.", error);
-    return json({ success: false, message: "We couldn't confirm delivery. Please try again or email us directly." }, 502);
+    return json({ success: false, message: "We couldn't confirm whether your enquiry was delivered. Please email us directly before submitting again to avoid a duplicate." }, 502);
   }
 
   if (!providerResponse.ok || !result || typeof result !== "object" || result.success !== true) {
+    releaseDuplicateSubmission(fields);
     console.error("Web3Forms rejected an enquiry.", {
       status: providerResponse.status,
-      message: typeof result.message === "string" ? result.message : "Unknown provider error",
+      message: result && typeof result.message === "string" ? result.message : "Unknown provider error",
     });
     return json({ success: false, message: "We couldn't send your enquiry just now. Please try again or email us directly." }, 502);
   }

@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-10-10
+Last updated: 2026-11-02
 
 ## Current phase
 
@@ -28,6 +28,8 @@ Phase 2: Supervised channel execution — LinkedIn text-member publishing implem
 | LinkedIn OAuth and text-member publishing | Done (verified with mocked LinkedIn responses) | OAuth state binding, encrypted token storage, member-text post payload, approval and emergency-pause gates, duplicate prevention, cross-origin rejection, and uncertain-result reconciliation covered by tests | Mocked LinkedIn API; app product access, credentials, account authorization, and a live post not verified |
 | Adobe Express video editor | Prepared (gated) | Feature remains disabled until Adobe business approval, client ID and matching HTTPS origin; integration status tests cover activation gate | Adobe account/approval not configured |
 | Documentation | Done (verified) | Setup, integration, capability, plan and status docs reviewed/updated | Local |
+| Public Pages enquiry repair | Done (local) | `npm test` — 31 tests passed, including JSON Content-Type, charset, malformed-body, browser-payload, route and protected-API checks | Providers mocked; Pages routing and live delivery not verified in production |
+| Public Pages FAQ and theme | Done (local) | Theme preference, reload, system override, page coverage, FAQ state and reduced-motion checks in `test/theme.test.js` | State simulated; no browser/device visual run |
 
 ## Blockers and owner actions
 
@@ -36,12 +38,15 @@ Phase 2: Supervised channel execution — LinkedIn text-member publishing implem
 - LinkedIn Developer app, Share on LinkedIn and OpenID Connect product access, server-side credentials, and an owner-authorized LinkedIn account are not configured. A real test post has not been sent.
 - Canva OAuth API calls use mocked responses in tests; no Canva account authorization, app credentials, template, or exported video has been verified live.
 - Adobe Express embed remains disabled pending Adobe business approval and HTTPS app configuration. Live social analytics, trends, and automated scheduling are not implemented.
+- The Pages enquiry and theme changes have not been deployed. Configure `TURNSTILE_SECRET_KEY` and `WEB3FORMS_ACCESS_KEY` as encrypted Cloudflare Pages secrets (and both optional Google Sheets settings if enabled) before a preview test. No real email or Sheets request was made.
 
 ## Known limitations
 
 - The Worker is deployed at `https://nearly-marketing-agent.madebynearly.workers.dev`; `/api/health` is verified and protected routes now redirect unauthenticated requests to Cloudflare Access. R2-backed media storage is intentionally deferred.
 - LinkedIn publishing currently supports only owner-triggered, approved, text-only member posts. Company-page posts, media, scheduled publishing, trends, and analytics remain unimplemented.
 - Dashboard and API local authentication bypass is enabled only by the ignored `.dev.vars` development configuration; it must not be used in production.
+- Root `npm test` is scoped to the public Pages tests so it does not discover the separate Worker's TypeScript tests; run the Worker suite independently with `cd agent && npm test` (8 files, 28 tests).
+- A desktop/mobile visual browser run and formal HTML/accessibility validator were unavailable in this environment. Responsive rules, semantic native FAQ controls, focus styling, reduced-motion CSS and contrast ratios were checked from source; this is not a WCAG conformance claim.
 
 ## Next steps
 

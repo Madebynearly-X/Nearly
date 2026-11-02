@@ -19,12 +19,16 @@ test("package values are normalized against the supported offer list", () => {
   assert.equal(normalizePackage("care plan"), "care-plan");
   assert.equal(normalizePackage("digital-presence"), "digital-presence");
   assert.equal(normalizePackage("Presence Essentials"), "digital-presence");
+  assert.equal(normalizePackage("constructor"), null);
+  assert.equal(normalizePackage("toString"), null);
   assert.equal(normalizePackage("script>alert(1)</script>"), null);
 });
 
 test("source values are normalised and default to website when absent", () => {
   assert.equal(normalizeSource("Google Search"), "google");
   assert.equal(normalizeSource(""), "website");
+  assert.equal(normalizeSource("constructor"), "other");
+  assert.equal(normalizeSource("toString"), "other");
   assert.equal(normalizeSource("<script>evil</script>"), "other");
 });
 
