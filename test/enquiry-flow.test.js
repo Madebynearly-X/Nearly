@@ -110,9 +110,11 @@ async function createContactFormHarness(options = {}) {
   const turnstileRenders = [];
   const removedWidgets = [];
   const resetWidgets = [];
+  let submitReadyAtAttach;
   let widgetNumber = 0;
   const form = {
     action: "/api/enquiry",
+    dataset: { externalSubmit: "true" },
     querySelector(selector) {
       return {
         "#q-phone": null,
@@ -126,7 +128,10 @@ async function createContactFormHarness(options = {}) {
         "[data-form-success]": success,
       }[selector] ?? null;
     },
-    addEventListener(name, handler) { handlers[name] = handler; },
+    addEventListener(name, handler) {
+      if (name === "submit") submitReadyAtAttach = this.dataset.externalSubmitReady;
+      handlers[name] = handler;
+    },
     reportValidity() { return options.valid !== false; },
     reset() {},
   };
@@ -183,8 +188,73 @@ async function createContactFormHarness(options = {}) {
   return {
     form, handlers, entries, live, packageField, submit, success, successMessage,
     documentElement: document.documentElement, themeHandlers, turnstileRenders, removedWidgets,
-    resetWidgets,
+    resetWidgets, submitReadyAtAttach,
     get fetchCalls() { return fetchCalls; },
+  };
+}
+
+async function createGenericSubmitHarness() {
+  const source = await readFile(join(projectRoot, "script.js"), "utf8");
+  const handlers = {};
+  const live = { textContent: "" };
+  const summary = { hidden: true, focus() {} };
+  const list = { replaceChildren() {}, append() {} };
+  let fetchCalls = 0;
+  let nativeSubmitCalls = 0;
+  const form = {
+    action: "/api/enquiry",
+    dataset: { externalSubmit: "true" },
+    querySelector(selector) {
+      return {
+        "[data-error-summary]": summary,
+        "[data-error-list]": list,
+        "[data-live]": live,
+      }[selector] ?? null;
+    },
+    querySelectorAll() { return []; },
+    addEventListener(name, handler) { handlers[name] = handler; },
+    submit() { nativeSubmitCalls += 1; },
+  };
+  const document = {
+    body: { prepend() {} },
+    documentElement: { scrollHeight: 1000 },
+    querySelector(selector) { return selector === "[data-form]" ? form : null; },
+    querySelectorAll() { return []; },
+    getElementById() { return null; },
+    createElement() {
+      return { setAttribute() {}, style: { setProperty() {} } };
+    },
+    addEventListener() {},
+  };
+  const location = {
+    search: "",
+    href: "https://nearly.example/contact",
+    origin: "https://nearly.example",
+  };
+  const fetch = () => { fetchCalls += 1; };
+  const window = {
+    location,
+    matchMedia() { return { matches: true }; },
+    addEventListener() {},
+    fetch,
+  };
+
+  runInNewContext(source, {
+    document,
+    window,
+    location,
+    URLSearchParams,
+    FormData: class {},
+    innerHeight: 800,
+    scrollY: 0,
+    addEventListener() {},
+    fetch,
+  });
+
+  return {
+    form, handlers, live,
+    get fetchCalls() { return fetchCalls; },
+    get nativeSubmitCalls() { return nativeSubmitCalls; },
   };
 }
 
@@ -430,6 +500,8 @@ testCases.push(["browser sends a JSON enquiry with the form fields and Turnstile
     },
   });
 
+  assert.equal(harness.submitReadyAtAttach, undefined);
+  assert.equal(harness.form.dataset.externalSubmitReady, "true");
   await harness.handlers.submit({ preventDefault() {} });
 
   assert.equal(submittedRequest.url, "/api/enquiry");
@@ -437,6 +509,21 @@ testCases.push(["browser sends a JSON enquiry with the form fields and Turnstile
   assert.equal(submittedRequest.init.headers["Content-Type"], "application/json");
   assert.deepEqual(JSON.parse(submittedRequest.init.body), formEntries);
   assert.equal(harness.success.hidden, false);
+}]);
+
+testCases.push(["generic handler blocks native submission if the dedicated handler is unavailable", async () => {
+  const harness = await createGenericSubmitHarness();
+  let prevented = false;
+
+  await harness.handlers.submit({
+    preventDefault() { prevented = true; },
+  });
+
+  assert.equal(prevented, true);
+  assert.match(harness.live.textContent, /form could not load.*refresh.*email/i);
+  assert.match(harness.live.textContent, /madebynearly@gmail\.com/);
+  assert.equal(harness.fetchCalls, 0);
+  assert.equal(harness.nativeSubmitCalls, 0);
 }]);
 
 testCases.push(["browser handler reports validation and missing-configuration feedback", async () => {
@@ -498,7 +585,8 @@ testCases.push(["Turnstile widget tracks the selected theme and resets on theme 
 
 testCases.push(["contact page loads the cache-busted JSON form handler", async () => {
   const markup = await readFile(join(projectRoot, "contact.html"), "utf8");
-  assert.match(markup, /<script src="contact-form\.js\?v=3" defer><\/script>/);
+  assert.match(markup, /<script src="contact-form\.js\?v=4" defer><\/script>/);
+  assert.match(markup, /<script src="script\.js\?v=5" defer><\/script>/);
 }]);
 
 test("enquiry flow", async (t) => {

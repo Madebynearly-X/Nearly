@@ -429,4 +429,5 @@
       resetTurnstile();
     }
   });
+  form.dataset.externalSubmitReady = "true";
 })();
