@@ -280,6 +280,7 @@ async function createContactFormHarness(options = {}) {
   let readyCallback;
   let readyCalls = 0;
   let turnstileWidgetNumber = 0;
+  let renderCalls = 0;
   const turnstile = {
     ready(callback) {
       operations.push("turnstile-ready");
@@ -292,7 +293,10 @@ async function createContactFormHarness(options = {}) {
     },
     render(container, config) {
       operations.push("turnstile-render");
-      if (options.turnstileRenderThrows) throw new Error("Mock rendering failure.");
+      renderCalls += 1;
+      if (options.turnstileRenderThrows || options.turnstileRenderThrowsOnCall === renderCalls) {
+        throw new Error("Mock rendering failure.");
+      }
       turnstileRenders.push({ container, config });
       turnstileWidgetNumber += 1;
       if (options.turnstileErrorsDuringRender) config["error-callback"]?.("110100");
@@ -770,6 +774,7 @@ testCases.push(["Turnstile API unavailability blocks submission and shows visibl
 testCases.push(["Turnstile ready failure leaves the core handler active and blocks submission", async () => {
   const harness = await createContactFormHarness({
     turnstileReadyThrows: true,
+    turnstileRenderThrows: true,
     fetch: async () => assert.fail("Failed Turnstile readiness must block submission"),
   });
   assert.equal(harness.form.dataset.externalSubmitReady, "true");
@@ -813,6 +818,7 @@ testCases.push(["Turnstile loading state blocks submission until a widget is rea
 testCases.push(["theme update failures stay isolated and block submissions after widget failure", async () => {
   const harness = await createContactFormHarness({
     turnstileReadyThrowsOnCall: 2,
+    turnstileRenderThrowsOnCall: 2,
     fetch: async () => assert.fail("A failed theme update must block submission"),
   });
   assert.equal(harness.turnstileStatus.hidden, true);
@@ -1024,7 +1030,7 @@ testCases.push(["static source check: enquiry form retains its dedicated JSON ha
 
 testCases.push(["static source check: contact page defers the shared script before the enquiry handler", async () => {
   const markup = await readFile(join(projectRoot, "contact.html"), "utf8");
-  assert.match(markup, /<script src="script\.js\?v=7" defer><\/script>[\s\S]*?<script src="contact-form\.js\?v=7" defer><\/script>/);
+  assert.match(markup, /<script src="script\.js\?v=7" defer><\/script>[\s\S]*?<script src="contact-form\.js\?v=8" defer><\/script>/);
   assert.match(markup, /<p class="field__error" data-turnstile-status role="status" aria-live="polite" hidden><\/p>/);
   assert.match(markup, /<div class="cf-turnstile"[^>]+id="enquiry-turnstile"/);
 }]);
@@ -1041,17 +1047,17 @@ testCases.push(["all active pages use the current immutable styles and script as
   const markup = pages.join("\n");
   assert.doesNotMatch(markup, /styles\.css\?v=4/);
   assert.doesNotMatch(markup, /script\.js\?v=(?:[0-6])(?:["&])/);
-  assert.doesNotMatch(markup, /contact-form\.js\?v=(?:[0-6])(?:["&])/);
+  assert.doesNotMatch(markup, /contact-form\.js\?v=(?:[0-7])(?:["&])/);
   assert.match(markup, /styles\.css\?v=5/);
   assert.match(markup, /script\.js\?v=7/);
-  assert.match(markup, /contact-form\.js\?v=7/);
+  assert.match(markup, /contact-form\.js\?v=8/);
   for (const page of htmlFiles) {
     const pageMarkup = await readFile(join(projectRoot, page), "utf8");
     for (const match of pageMarkup.matchAll(/(?:\/?)script\.js\?v=(\d+)/g)) {
       assert.equal(match[1], "7", `${page} uses an outdated script.js version`);
     }
     for (const match of pageMarkup.matchAll(/(?:\/?)contact-form\.js\?v=(\d+)/g)) {
-      assert.equal(match[1], "7", `${page} uses an outdated contact-form.js version`);
+      assert.equal(match[1], "8", `${page} uses an outdated contact-form.js version`);
     }
   }
 }]);
@@ -1146,6 +1152,31 @@ testCases.push(["Turnstile script retries are bounded and the form stays blocked
   assert.equal(harness.timers.length, 0);
   assert.equal(harness.injectedScripts.length, 2);
   assert.equal(harness.turnstileStatus.hidden, false);
+  await harness.clickSubmit();
+  assert.equal(harness.fetchCalls, 0);
+}]);
+
+testCases.push(["Turnstile falls back to direct rendering when ready() throws, and logs the real error", async () => {
+  const harness = await createContactFormHarness({
+    turnstileReadyThrows: true,
+    fetch: async () => mockResponse({ success: true }),
+  });
+  assert.equal(harness.turnstileRenders.length, 1);
+  assert.equal(harness.turnstileStatus.hidden, true);
+  assert.ok(harness.logs.some((message) => message.startsWith("[NEARLY Enquiry] Turnstile API readiness failed.") && message.includes("Mock API readiness failure.")));
+  await harness.clickSubmit();
+  assert.equal(harness.fetchCalls, 1);
+}]);
+
+testCases.push(["Turnstile direct-render fallback still reports a widget that cannot render", async () => {
+  const harness = await createContactFormHarness({
+    turnstileReadyThrows: true,
+    turnstileRenderThrows: true,
+    fetch: async () => assert.fail("A widget that cannot render must block submission"),
+  });
+  assert.equal(harness.turnstileRenders.length, 0);
+  assert.equal(harness.turnstileStatus.hidden, false);
+  assert.ok(harness.logs.some((message) => message.startsWith("[NEARLY Enquiry] Turnstile widget rendering failed.") && message.includes("Mock rendering failure.")));
   await harness.clickSubmit();
   assert.equal(harness.fetchCalls, 0);
 }]);

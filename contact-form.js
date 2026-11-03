@@ -318,7 +318,7 @@
   let resetTurnstile = () => {};
   const securityCheckError = "The security check couldn't load. Please refresh the page or email madebynearly@gmail.com.";
   const reportInitializationFailure = (feature, detail) => {
-    console.error(`[NEARLY Enquiry] ${feature} failed.${detail ? ` Error code: ${detail}` : ""}`);
+    console.error(`[NEARLY Enquiry] ${feature} failed.${detail ? ` Details: ${detail}` : ""}`);
   };
   const setTurnstileStatus = (message) => {
     if (!turnstileStatus) return;
@@ -535,56 +535,68 @@
       reportInitializationFailure(feature, detail);
     };
 
+    const describeError = (error) => (error && error.message ? String(error.message) : undefined);
+
+    const renderWidget = () => {
+      if (turnstileWidgetId !== null) {
+        turnstile.remove(turnstileWidgetId);
+        turnstileWidgetId = null;
+      }
+      const currentVersion = renderVersion;
+      const widgetId = turnstile.render(turnstileContainer, {
+        sitekey: turnstileContainer.dataset.sitekey,
+        action: turnstileContainer.dataset.action,
+        theme: document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+        // A successful challenge clears any earlier widget error (Turnstile retries
+        // automatically), so the form recovers without a page refresh.
+        callback: () => {
+          if (currentVersion !== renderVersion) return;
+          turnstileState = "ready";
+          setTurnstileStatus("");
+        },
+        // Without an error callback, Turnstile errors (wrong hostname, blocked iframe,
+        // bad site key) only surface as exceptions and the form looks ready but never
+        // gets a token. Returning true tells Turnstile the error has been handled.
+        "error-callback": (errorCode) => {
+          if (currentVersion === renderVersion) {
+            failTurnstile("Turnstile challenge", errorCode);
+          }
+          return true;
+        },
+      });
+      if (widgetId === null || widgetId === undefined) {
+        throw new Error("Turnstile did not return a widget identifier.");
+      }
+      turnstileWidgetId = widgetId;
+      // The error callback can fire while render() is still running.
+      if (turnstileState !== "failed") {
+        turnstileState = "ready";
+        setTurnstileStatus("");
+      }
+    };
+
     const renderTurnstile = () => {
       const currentVersion = ++renderVersion;
       turnstileState = "loading";
       setTurnstileStatus("Loading the security check…");
-      try {
-        turnstile.ready(() => {
-          if (currentVersion !== renderVersion) return;
-          try {
-            if (turnstileWidgetId !== null) {
-              turnstile.remove(turnstileWidgetId);
-              turnstileWidgetId = null;
-            }
-            const widgetId = turnstile.render(turnstileContainer, {
-              sitekey: turnstileContainer.dataset.sitekey,
-              action: turnstileContainer.dataset.action,
-              theme: document.documentElement.dataset.theme === "dark" ? "dark" : "light",
-              // A successful challenge clears any earlier widget error (Turnstile retries
-              // automatically), so the form recovers without a page refresh.
-              callback: () => {
-                if (currentVersion !== renderVersion) return;
-                turnstileState = "ready";
-                setTurnstileStatus("");
-              },
-              // Without an error callback, Turnstile errors (wrong hostname, blocked iframe,
-              // bad site key) only surface as exceptions and the form looks ready but never
-              // gets a token. Returning true tells Turnstile the error has been handled.
-              "error-callback": (errorCode) => {
-                if (currentVersion === renderVersion) {
-                  failTurnstile("Turnstile challenge", errorCode);
-                }
-                return true;
-              },
-            });
-            if (widgetId === null || widgetId === undefined) {
-              throw new Error("Turnstile did not return a widget identifier.");
-            }
-            turnstileWidgetId = widgetId;
-            // The error callback can fire while render() is still running.
-            if (turnstileState !== "failed") {
-              turnstileState = "ready";
-              setTurnstileStatus("");
-            }
-          } catch {
-            failTurnstile("Turnstile widget rendering");
-          }
-        });
-      } catch {
-        if (currentVersion === renderVersion) {
-          failTurnstile("Turnstile API readiness");
+      const renderWhenReady = () => {
+        if (currentVersion !== renderVersion) return;
+        try {
+          renderWidget();
+        } catch (error) {
+          failTurnstile("Turnstile widget rendering", describeError(error));
         }
+      };
+      try {
+        turnstile.ready(renderWhenReady);
+      } catch (error) {
+        if (currentVersion !== renderVersion) return;
+        // turnstile.ready() can throw depending on how api.js was loaded (the browser then logs
+        // "turnstile.ready() would break if called before the Turnstile api.js script is
+        // loaded"). window.turnstile already exists at this point, so record the real error
+        // for diagnosis and render the widget directly instead of leaving the form blocked.
+        reportInitializationFailure("Turnstile API readiness", describeError(error));
+        renderWhenReady();
       }
     };
 
