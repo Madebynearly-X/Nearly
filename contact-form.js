@@ -317,8 +317,8 @@
   let turnstileState = "unavailable";
   let resetTurnstile = () => {};
   const securityCheckError = "The security check couldn't load. Please refresh the page or email madebynearly@gmail.com.";
-  const reportInitializationFailure = (feature) => {
-    console.error(`[NEARLY Enquiry] ${feature} failed.`);
+  const reportInitializationFailure = (feature, detail) => {
+    console.error(`[NEARLY Enquiry] ${feature} failed.${detail ? ` Error code: ${detail}` : ""}`);
   };
   const setTurnstileStatus = (message) => {
     if (!turnstileStatus) return;
@@ -435,6 +435,7 @@
   }
   form.dataset.externalSubmitReady = "true";
   form.dataset.externalSubmitState = "ready";
+  submit.disabled = false;
 
   try {
     form.addEventListener("invalid", (event) => {
@@ -458,11 +459,58 @@
     reportInitializationFailure("Query-string form prefilling");
   }
 
+  const turnstileScriptUrl = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+  const turnstileScriptRetryDelays = [1500, 4500];
+  let turnstileScriptRecoveryStarted = false;
+
+  // The page loads Turnstile from a single deferred tag. If that one request fails (a flaky
+  // connection, a transient CDN error) the form would stay blocked until a manual refresh, so
+  // quietly try to load the script again a couple of times. The visible fallback message stays
+  // in place until the API actually arrives.
+  const retryTurnstileScript = (onLoaded) => {
+    let attempt = 0;
+    const scheduleRetry = () => {
+      if (attempt >= turnstileScriptRetryDelays.length) return;
+      setTimeout(loadScript, turnstileScriptRetryDelays[attempt]);
+      attempt += 1;
+    };
+    const loadScript = () => {
+      try {
+        const script = document.createElement("script");
+        script.src = turnstileScriptUrl;
+        script.async = true;
+        script.onload = () => {
+          if (window.turnstile) {
+            onLoaded();
+          } else {
+            scheduleRetry();
+          }
+        };
+        script.onerror = () => {
+          script.remove?.();
+          scheduleRetry();
+        };
+        document.head.appendChild(script);
+      } catch {
+        scheduleRetry();
+      }
+    };
+    scheduleRetry();
+  };
+
   const initializeTurnstile = () => {
     if (!turnstileContainer || !window.turnstile) {
       turnstileState = "unavailable";
       setTurnstileStatus(securityCheckError);
       reportInitializationFailure(turnstileContainer ? "Turnstile API availability" : "Turnstile container");
+      if (turnstileContainer && !turnstileScriptRecoveryStarted) {
+        turnstileScriptRecoveryStarted = true;
+        try {
+          retryTurnstileScript(startTurnstile);
+        } catch {
+          // Recovery is best effort; the visible message above already blocks and explains.
+        }
+      }
       return;
     }
 
@@ -481,10 +529,10 @@
       }
     };
 
-    const failTurnstile = (feature) => {
+    const failTurnstile = (feature, detail) => {
       turnstileState = "failed";
       setTurnstileStatus(securityCheckError);
-      reportInitializationFailure(feature);
+      reportInitializationFailure(feature, detail);
     };
 
     const renderTurnstile = () => {
@@ -503,13 +551,32 @@
               sitekey: turnstileContainer.dataset.sitekey,
               action: turnstileContainer.dataset.action,
               theme: document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+              // A successful challenge clears any earlier widget error (Turnstile retries
+              // automatically), so the form recovers without a page refresh.
+              callback: () => {
+                if (currentVersion !== renderVersion) return;
+                turnstileState = "ready";
+                setTurnstileStatus("");
+              },
+              // Without an error callback, Turnstile errors (wrong hostname, blocked iframe,
+              // bad site key) only surface as exceptions and the form looks ready but never
+              // gets a token. Returning true tells Turnstile the error has been handled.
+              "error-callback": (errorCode) => {
+                if (currentVersion === renderVersion) {
+                  failTurnstile("Turnstile challenge", errorCode);
+                }
+                return true;
+              },
             });
             if (widgetId === null || widgetId === undefined) {
               throw new Error("Turnstile did not return a widget identifier.");
             }
             turnstileWidgetId = widgetId;
-            turnstileState = "ready";
-            setTurnstileStatus("");
+            // The error callback can fire while render() is still running.
+            if (turnstileState !== "failed") {
+              turnstileState = "ready";
+              setTurnstileStatus("");
+            }
           } catch {
             failTurnstile("Turnstile widget rendering");
           }
@@ -535,11 +602,15 @@
     }
   };
 
-  try {
-    initializeTurnstile();
-  } catch {
-    turnstileState = "failed";
-    setTurnstileStatus(securityCheckError);
-    reportInitializationFailure("Turnstile initialization");
-  }
+  const startTurnstile = () => {
+    try {
+      initializeTurnstile();
+    } catch {
+      turnstileState = "failed";
+      setTurnstileStatus(securityCheckError);
+      reportInitializationFailure("Turnstile initialization");
+    }
+  };
+
+  startTurnstile();
 })();

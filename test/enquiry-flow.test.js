@@ -169,7 +169,7 @@ async function createContactFormHarness(options = {}) {
   const operations = [];
   const logs = [];
   const packageField = { value: options.packageValue || "" };
-  const submit = { textContent: "Send enquiry", disabled: false };
+  const submit = { textContent: "Send enquiry", disabled: true };
   const summary = { hidden: true, focus() {} };
   const list = {
     replaceChildren() { entries.length = 0; },
@@ -201,6 +201,8 @@ async function createContactFormHarness(options = {}) {
   turnstileContainer.dataset = { sitekey: "mock-site-key", action: "enquiry" };
   const themeHandlers = {};
   const turnstileRenders = [];
+  const timers = [];
+  const injectedScripts = [];
   const removedWidgets = [];
   const resetWidgets = [];
   let submitReadyAtAttach;
@@ -272,6 +274,7 @@ async function createContactFormHarness(options = {}) {
       return createMockElement(tagName, operations);
     },
     createTextNode(text) { return { textContent: text, parentNode: null }; },
+    head: { appendChild(node) { injectedScripts.push(node); } },
     addEventListener() {},
   };
   let readyCallback;
@@ -292,6 +295,7 @@ async function createContactFormHarness(options = {}) {
       if (options.turnstileRenderThrows) throw new Error("Mock rendering failure.");
       turnstileRenders.push({ container, config });
       turnstileWidgetNumber += 1;
+      if (options.turnstileErrorsDuringRender) config["error-callback"]?.("110100");
       return `widget-${turnstileWidgetNumber}`;
     },
     remove(widgetId) { removedWidgets.push(widgetId); },
@@ -324,9 +328,14 @@ async function createContactFormHarness(options = {}) {
     FormData: MockFormData,
     fetch,
     console,
+    setTimeout(callback, ms) {
+      timers.push({ fn: callback, ms });
+      return timers.length;
+    },
   });
 
   return {
+    window, turnstile, timers, injectedScripts,
     form, handlers, entries, live, packageField, submit, success, successMessage, summary, clickSubmit,
     documentElement: document.documentElement, themeHandlers, turnstileRenders, removedWidgets,
     resetWidgets, submitReadyAtAttach, operations, logs, phone, phoneField, turnstileStatus,
@@ -656,6 +665,7 @@ testCases.push(["core handler becomes ready before actual phone picker and Turns
   assert.ok(harness.operations.indexOf("dom-create") > submitListenerIndex);
   assert.ok(harness.operations.indexOf("turnstile-ready") > submitListenerIndex);
   assert.equal(harness.form.dataset.externalSubmitReady, "true");
+  assert.equal(harness.submit.disabled, false);
 }]);
 
 testCases.push(["failed core handler registration is explicitly reported", async () => {
@@ -665,6 +675,7 @@ testCases.push(["failed core handler registration is explicitly reported", async
   });
   assert.notEqual(harness.form.dataset.externalSubmitReady, "true");
   assert.equal(harness.form.dataset.externalSubmitState, "failed");
+  assert.equal(harness.submit.disabled, true);
   assert.ok(harness.logs.some((message) => message.startsWith("[NEARLY Enquiry] Core submit handler registration failed.")));
 }]);
 
@@ -827,7 +838,7 @@ testCases.push(["theme update failures stay isolated and block submissions after
 
 testCases.push(["submit button click reaches the dedicated form handler", async () => {
   const markup = await readFile(join(projectRoot, "contact.html"), "utf8");
-  assert.match(markup, /<button class="button form-submit" type="submit">Send enquiry<\/button>/);
+  assert.match(markup, /<button class="button form-submit" type="submit" disabled>Send enquiry<\/button>/);
 
   const harness = await createContactFormHarness({
     fetch: async () => ({
@@ -1004,15 +1015,24 @@ testCases.push(["Turnstile widget tracks the selected theme and resets on theme 
   assert.equal(harness.turnstileRenders[1].config.theme, "dark");
 }]);
 
-testCases.push(["contact page loads the cache-busted JSON form handler", async () => {
+testCases.push(["static source check: enquiry form retains its dedicated JSON handler routing", async () => {
   const markup = await readFile(join(projectRoot, "contact.html"), "utf8");
-  assert.match(markup, /<link rel="stylesheet" href="styles\.css\?v=5">/);
-  assert.match(markup, /<script src="contact-form\.js\?v=6" defer><\/script>/);
-  assert.match(markup, /<script src="script\.js\?v=7" defer><\/script>/);
-  assert.ok(markup.indexOf("script.js?v=7") < markup.indexOf("challenges.cloudflare.com"));
-  assert.ok(markup.indexOf("challenges.cloudflare.com") < markup.indexOf("contact-form.js?v=6"));
+  const form = markup.match(/<form\b[^>]*\bname="enquiry"[^>]*>/)?.[0] || "";
+  assert.match(form, /\baction="\/api\/enquiry"/);
+  assert.match(form, /\bdata-external-submit="true"/);
+}]);
+
+testCases.push(["static source check: contact page defers the shared script before the enquiry handler", async () => {
+  const markup = await readFile(join(projectRoot, "contact.html"), "utf8");
+  assert.match(markup, /<script src="script\.js\?v=7" defer><\/script>[\s\S]*?<script src="contact-form\.js\?v=7" defer><\/script>/);
   assert.match(markup, /<p class="field__error" data-turnstile-status role="status" aria-live="polite" hidden><\/p>/);
   assert.match(markup, /<div class="cf-turnstile"[^>]+id="enquiry-turnstile"/);
+}]);
+
+testCases.push(["static source check: enquiry submit starts disabled and a no-JavaScript email notice exists", async () => {
+  const markup = await readFile(join(projectRoot, "contact.html"), "utf8");
+  assert.match(markup, /<button class="button form-submit" type="submit" disabled>Send enquiry<\/button>/);
+  assert.match(markup, /<noscript>\s*<p class="form-note">This form requires JavaScript\. Please email <a href="mailto:madebynearly@gmail\.com">madebynearly@gmail\.com<\/a> instead\.<\/p><\/noscript>/);
 }]);
 
 testCases.push(["all active pages use the current immutable styles and script assets", async () => {
@@ -1021,17 +1041,17 @@ testCases.push(["all active pages use the current immutable styles and script as
   const markup = pages.join("\n");
   assert.doesNotMatch(markup, /styles\.css\?v=4/);
   assert.doesNotMatch(markup, /script\.js\?v=(?:[0-6])(?:["&])/);
-  assert.doesNotMatch(markup, /contact-form\.js\?v=(?:[0-5])(?:["&])/);
+  assert.doesNotMatch(markup, /contact-form\.js\?v=(?:[0-6])(?:["&])/);
   assert.match(markup, /styles\.css\?v=5/);
   assert.match(markup, /script\.js\?v=7/);
-  assert.match(markup, /contact-form\.js\?v=6/);
+  assert.match(markup, /contact-form\.js\?v=7/);
   for (const page of htmlFiles) {
     const pageMarkup = await readFile(join(projectRoot, page), "utf8");
     for (const match of pageMarkup.matchAll(/(?:\/?)script\.js\?v=(\d+)/g)) {
       assert.equal(match[1], "7", `${page} uses an outdated script.js version`);
     }
     for (const match of pageMarkup.matchAll(/(?:\/?)contact-form\.js\?v=(\d+)/g)) {
-      assert.equal(match[1], "6", `${page} uses an outdated contact-form.js version`);
+      assert.equal(match[1], "7", `${page} uses an outdated contact-form.js version`);
     }
   }
 }]);
@@ -1041,6 +1061,93 @@ testCases.push(["enabled and disabled button cursors are distinguishable", async
   assert.match(styles, /\.button\s*\{[^}]*cursor:\s*pointer[^}]*pointer-events:\s*auto/);
   assert.match(styles, /\.button:disabled\s*\{[^}]*cursor:\s*not-allowed[^}]*opacity:/);
   assert.match(styles, /\.button:before\s*\{[^}]*pointer-events:none/);
+}]);
+
+testCases.push(["Turnstile error callback shows visible feedback, blocks submission and recovers on success", async () => {
+  const harness = await createContactFormHarness({
+    fetch: async () => assert.fail("A failed Turnstile widget must block submission"),
+  });
+  const config = harness.turnstileRenders[0].config;
+  assert.equal(typeof config.callback, "function");
+  assert.equal(typeof config["error-callback"], "function");
+  assert.equal(harness.turnstileStatus.hidden, true);
+
+  assert.equal(config["error-callback"]("110200"), true);
+  assert.equal(harness.turnstileStatus.hidden, false);
+  assert.match(harness.turnstileStatus.textContent, /security check couldn't load.*email/i);
+  assert.ok(harness.logs.some((message) => message.startsWith("[NEARLY Enquiry] Turnstile challenge failed.") && message.includes("110200")));
+  await harness.clickSubmit();
+  assert.equal(harness.fetchCalls, 0);
+  assert.match(harness.entries.join(" "), /security check couldn't load/i);
+
+  config.callback("fresh-token");
+  assert.equal(harness.turnstileStatus.hidden, true);
+}]);
+
+testCases.push(["Turnstile error raised while rendering is not overwritten by the ready state", async () => {
+  const harness = await createContactFormHarness({
+    turnstileErrorsDuringRender: true,
+    fetch: async () => assert.fail("A failed Turnstile widget must block submission"),
+  });
+  assert.equal(harness.turnstileStatus.hidden, false);
+  assert.match(harness.turnstileStatus.textContent, /security check couldn't load/i);
+  await harness.clickSubmit();
+  assert.equal(harness.fetchCalls, 0);
+}]);
+
+testCases.push(["stale Turnstile callbacks from a replaced widget are ignored", async () => {
+  const harness = await createContactFormHarness({ fetch: async () => mockResponse({ success: true }) });
+  const first = harness.turnstileRenders[0].config;
+  harness.documentElement.dataset.theme = "dark";
+  harness.themeHandlers["nearly:themechange"]({ detail: { theme: "dark" } });
+  assert.equal(harness.turnstileRenders.length, 2);
+
+  assert.equal(first["error-callback"]("300030"), true);
+  assert.equal(harness.turnstileStatus.hidden, true);
+  harness.turnstileRenders[1].config["error-callback"]("300030");
+  assert.equal(harness.turnstileStatus.hidden, false);
+}]);
+
+testCases.push(["a Turnstile script that failed to load is retried and the form recovers", async () => {
+  const harness = await createContactFormHarness({
+    turnstileUnavailable: true,
+    fetch: async () => mockResponse({ success: true }),
+  });
+  assert.equal(harness.turnstileStatus.hidden, false);
+  assert.equal(harness.turnstileRenders.length, 0);
+  assert.equal(harness.timers.length, 1);
+  assert.equal(harness.timers[0].ms, 1500);
+
+  harness.timers.shift().fn();
+  assert.equal(harness.injectedScripts.length, 1);
+  const script = harness.injectedScripts[0];
+  assert.equal(script.src, "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit");
+
+  harness.window.turnstile = harness.turnstile;
+  script.onload();
+  assert.equal(harness.turnstileRenders.length, 1);
+  assert.equal(harness.turnstileStatus.hidden, true);
+  await harness.clickSubmit();
+  assert.equal(harness.fetchCalls, 1);
+}]);
+
+testCases.push(["Turnstile script retries are bounded and the form stays blocked when they all fail", async () => {
+  const harness = await createContactFormHarness({
+    turnstileUnavailable: true,
+    fetch: async () => assert.fail("Unavailable Turnstile must block submission"),
+  });
+  harness.timers.shift().fn();
+  harness.injectedScripts[0].onerror();
+  assert.equal(harness.timers.length, 1);
+  assert.equal(harness.timers[0].ms, 4500);
+
+  harness.timers.shift().fn();
+  harness.injectedScripts[1].onerror();
+  assert.equal(harness.timers.length, 0);
+  assert.equal(harness.injectedScripts.length, 2);
+  assert.equal(harness.turnstileStatus.hidden, false);
+  await harness.clickSubmit();
+  assert.equal(harness.fetchCalls, 0);
 }]);
 
 test("enquiry flow", async (t) => {

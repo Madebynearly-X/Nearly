@@ -23,7 +23,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="styles.css?v=5">
 <link rel="stylesheet" href="motion-advanced.css?v=9">
   <script src="script.js?v=7" defer></script><script src="motion-advanced.js?v=9" defer></script>  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
-  <script src="contact-form.js?v=6" defer></script>
+  <script src="contact-form.js?v=7" defer></script>
   <link rel="stylesheet" href="/theme.css?v=1">
 </head>
 <body>
@@ -62,6 +62,7 @@
           </div>
         </div>
         <form class="form" name="enquiry" method="POST" action="/api/enquiry" data-form data-external-submit="true">
+          <noscript><p class="form-note">This form requires JavaScript. Please email <a href="mailto:madebynearly@gmail.com">madebynearly@gmail.com</a> instead.</p></noscript>
           <p class="honeypot" aria-hidden="true" inert hidden><label aria-hidden="true">Leave this empty<input name="_honey" tabindex="-1" autocomplete="off" aria-hidden="true"></label></p>
           <input type="hidden" name="source" id="q-source" value="website">
           <div class="error-summary" role="alert" tabindex="-1" data-error-summary hidden><h3>Please check the following</h3><ul data-error-list></ul></div>
@@ -104,7 +105,7 @@
           </div>
           <div class="turnstile-wrap"><div class="cf-turnstile" id="enquiry-turnstile" data-sitekey="0x4AAAAAAFScENben8LGt0cG" data-action="enquiry" data-theme="light"></div></div>
           <p class="field__error" data-turnstile-status role="status" aria-live="polite" hidden></p>
-          <button class="button form-submit" type="submit">Send enquiry</button>
+          <button class="button form-submit" type="submit" disabled>Send enquiry</button>
           <p class="form-note">We use your details to respond to your enquiry and manage follow-up. Unsuccessful enquiries are removed within 12 months of last meaningful contact. <a href="privacy.html">Read our privacy notice.</a></p>
           <div class="form-success" tabindex="-1" data-form-success hidden>
             <h3>Thanks for reaching out.</h3>
