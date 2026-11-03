@@ -105,6 +105,10 @@ async function createContactFormHarness(options = {}) {
     querySelector() { return successMessage; },
     focus() {},
   };
+  const clickSubmit = (event = { preventDefault() {} }) => {
+    if (submit.disabled) return Promise.resolve();
+    return handlers.submit(event);
+  };
   const turnstileContainer = { dataset: { sitekey: "mock-site-key", action: "enquiry" } };
   const themeHandlers = {};
   const turnstileRenders = [];
@@ -136,8 +140,8 @@ async function createContactFormHarness(options = {}) {
     reset() {},
   };
   class MockFormData {
-    [Symbol.iterator]() {
-      const entries = options.formEntries || {
+    constructor() {
+      this.entries = options.formEntries || {
         name: "Test",
         email: "test@example.test",
         phone: "+27 78 394 0421",
@@ -149,7 +153,14 @@ async function createContactFormHarness(options = {}) {
         _honey: "",
         "cf-turnstile-response": "mock-turnstile-token",
       };
-      return Object.entries(entries)[Symbol.iterator]();
+    }
+
+    get(name) {
+      return Object.hasOwn(this.entries, name) ? this.entries[name] : null;
+    }
+
+    [Symbol.iterator]() {
+      return Object.entries(this.entries)[Symbol.iterator]();
     }
   }
   const document = {
@@ -186,24 +197,31 @@ async function createContactFormHarness(options = {}) {
   });
 
   return {
-    form, handlers, entries, live, packageField, submit, success, successMessage,
+    form, handlers, entries, live, packageField, submit, success, successMessage, summary, clickSubmit,
     documentElement: document.documentElement, themeHandlers, turnstileRenders, removedWidgets,
     resetWidgets, submitReadyAtAttach,
     get fetchCalls() { return fetchCalls; },
   };
 }
 
-async function createGenericSubmitHarness() {
+async function createGenericSubmitHarness(options = {}) {
   const source = await readFile(join(projectRoot, "script.js"), "utf8");
   const handlers = {};
   const live = { textContent: "" };
   const summary = { hidden: true, focus() {} };
-  const list = { replaceChildren() {}, append() {} };
+  const entries = [];
+  const list = {
+    replaceChildren() { entries.length = 0; },
+    append(item) { entries.push(item.textContent); },
+  };
   let fetchCalls = 0;
   let nativeSubmitCalls = 0;
   const form = {
     action: "/api/enquiry",
-    dataset: { externalSubmit: "true" },
+    dataset: {
+      externalSubmit: "true",
+      ...(options.ready ? { externalSubmitReady: "true" } : {}),
+    },
     querySelector(selector) {
       return {
         "[data-error-summary]": summary,
@@ -222,7 +240,7 @@ async function createGenericSubmitHarness() {
     querySelectorAll() { return []; },
     getElementById() { return null; },
     createElement() {
-      return { setAttribute() {}, style: { setProperty() {} } };
+      return { textContent: "", setAttribute() {}, style: { setProperty() {} } };
     },
     addEventListener() {},
   };
@@ -252,7 +270,7 @@ async function createGenericSubmitHarness() {
   });
 
   return {
-    form, handlers, live,
+    form, handlers, live, summary, entries,
     get fetchCalls() { return fetchCalls; },
     get nativeSubmitCalls() { return nativeSubmitCalls; },
   };
@@ -456,7 +474,7 @@ testCases.push(["browser handler prevents overlapping submissions", async () => 
     fetch: () => new Promise((resolve) => { resolveResponse = resolve; }),
   });
   let prevented = 0;
-  const firstSubmission = harness.handlers.submit({ preventDefault() { prevented += 1; } });
+  const firstSubmission = harness.clickSubmit({ preventDefault() { prevented += 1; } });
   assert.equal(harness.submit.disabled, true);
   assert.equal(harness.live.textContent, "Sending your enquiry…");
 
@@ -502,7 +520,7 @@ testCases.push(["browser sends a JSON enquiry with the form fields and Turnstile
 
   assert.equal(harness.submitReadyAtAttach, undefined);
   assert.equal(harness.form.dataset.externalSubmitReady, "true");
-  await harness.handlers.submit({ preventDefault() {} });
+  await harness.clickSubmit();
 
   assert.equal(submittedRequest.url, "/api/enquiry");
   assert.equal(submittedRequest.init.method, "POST");
@@ -511,7 +529,23 @@ testCases.push(["browser sends a JSON enquiry with the form fields and Turnstile
   assert.equal(harness.success.hidden, false);
 }]);
 
-testCases.push(["generic handler blocks native submission if the dedicated handler is unavailable", async () => {
+testCases.push(["submit button click reaches the dedicated form handler", async () => {
+  const markup = await readFile(join(projectRoot, "contact.html"), "utf8");
+  assert.match(markup, /<button class="button form-submit" type="submit">Send enquiry<\/button>/);
+
+  const harness = await createContactFormHarness({
+    fetch: async () => ({
+      ok: true,
+      async json() { return { success: true }; },
+    }),
+  });
+  await harness.clickSubmit();
+
+  assert.equal(harness.fetchCalls, 1);
+  assert.equal(harness.success.hidden, false);
+}]);
+
+testCases.push(["generic handler shows a visible fallback if the dedicated handler is unavailable", async () => {
   const harness = await createGenericSubmitHarness();
   let prevented = false;
 
@@ -522,8 +556,31 @@ testCases.push(["generic handler blocks native submission if the dedicated handl
   assert.equal(prevented, true);
   assert.match(harness.live.textContent, /form could not load.*refresh.*email/i);
   assert.match(harness.live.textContent, /madebynearly@gmail\.com/);
+  assert.equal(harness.summary.hidden, false);
+  assert.match(harness.entries.join(" "), /form could not load.*refresh.*email/i);
   assert.equal(harness.fetchCalls, 0);
   assert.equal(harness.nativeSubmitCalls, 0);
+}]);
+
+testCases.push(["generic handler allows the registered dedicated submit handler to run", async () => {
+  const generic = await createGenericSubmitHarness({ ready: true });
+  const dedicated = await createContactFormHarness({
+    fetch: async () => ({
+      ok: true,
+      async json() { return { success: true }; },
+    }),
+  });
+  let prevented = 0;
+  const event = { preventDefault() { prevented += 1; } };
+
+  await generic.handlers.submit(event);
+  await dedicated.handlers.submit(event);
+
+  assert.equal(generic.form.dataset.externalSubmitReady, "true");
+  assert.equal(prevented, 1);
+  assert.equal(generic.fetchCalls, 0);
+  assert.equal(dedicated.fetchCalls, 1);
+  assert.equal(dedicated.success.hidden, false);
 }]);
 
 testCases.push(["browser handler reports validation and missing-configuration feedback", async () => {
@@ -572,6 +629,59 @@ testCases.push(["browser handler reports validation and missing-configuration fe
   assert.equal(serverErrorForm.live.textContent, "We couldn't send your enquiry just now.");
 }]);
 
+testCases.push(["browser reports missing or expired Turnstile tokens visibly", async () => {
+  const missingToken = await createContactFormHarness({
+    formEntries: {
+      name: "Test",
+      email: "test@example.test",
+      phone: "",
+      business: "",
+      package: "",
+      details: "I would like to discuss a new website.",
+      source: "website",
+      country_code: "+27",
+      _honey: "",
+    },
+    fetch: async () => assert.fail("A missing Turnstile token must not be sent"),
+  });
+  await missingToken.clickSubmit();
+  assert.equal(missingToken.fetchCalls, 0);
+  assert.match(missingToken.entries.join(" "), /complete the security check/i);
+  assert.equal(missingToken.summary.hidden, false);
+  assert.equal(missingToken.submit.disabled, false);
+
+  const expiredToken = await createContactFormHarness({
+    fetch: async () => ({
+      ok: false,
+      async json() {
+        return {
+          success: false,
+          code: "verification_failed",
+          message: "The security check failed or expired. Please retry it and submit again.",
+        };
+      },
+    }),
+  });
+  await expiredToken.clickSubmit();
+  assert.equal(expiredToken.fetchCalls, 1);
+  assert.match(expiredToken.entries.join(" "), /security check failed or expired/i);
+  assert.equal(expiredToken.summary.hidden, false);
+  assert.equal(expiredToken.submit.disabled, false);
+  assert.deepEqual(expiredToken.resetWidgets, ["widget-1"]);
+}]);
+
+testCases.push(["submit button is restored after a failed request", async () => {
+  const harness = await createContactFormHarness({
+    fetch: async () => { throw new Error("Network unavailable."); },
+  });
+  await harness.clickSubmit();
+
+  assert.equal(harness.submit.disabled, false);
+  assert.equal(harness.submit.textContent, "Send enquiry");
+  assert.equal(harness.summary.hidden, false);
+  assert.match(harness.live.textContent, /couldn't confirm your enquiry was sent/i);
+}]);
+
 testCases.push(["Turnstile widget tracks the selected theme and resets on theme changes", async () => {
   const harness = await createContactFormHarness({ fetch: async () => mockResponse({ success: true }) });
   assert.equal(harness.turnstileRenders[0].config.theme, "light");
@@ -585,8 +695,27 @@ testCases.push(["Turnstile widget tracks the selected theme and resets on theme 
 
 testCases.push(["contact page loads the cache-busted JSON form handler", async () => {
   const markup = await readFile(join(projectRoot, "contact.html"), "utf8");
-  assert.match(markup, /<script src="contact-form\.js\?v=4" defer><\/script>/);
-  assert.match(markup, /<script src="script\.js\?v=5" defer><\/script>/);
+  assert.match(markup, /<link rel="stylesheet" href="styles\.css\?v=5">/);
+  assert.match(markup, /<script src="contact-form\.js\?v=5" defer><\/script>/);
+  assert.match(markup, /<script src="script\.js\?v=6" defer><\/script>/);
+  assert.match(markup, /<div class="cf-turnstile"[^>]+id="enquiry-turnstile"/);
+}]);
+
+testCases.push(["all active pages use the current immutable styles and script assets", async () => {
+  const htmlFiles = (await readdir(projectRoot)).filter((file) => file.endsWith(".html"));
+  const pages = await Promise.all(htmlFiles.map((file) => readFile(join(projectRoot, file), "utf8")));
+  const markup = pages.join("\n");
+  assert.doesNotMatch(markup, /styles\.css\?v=4/);
+  assert.doesNotMatch(markup, /script\.js\?v=[345]/);
+  assert.match(markup, /styles\.css\?v=5/);
+  assert.match(markup, /script\.js\?v=6/);
+}]);
+
+testCases.push(["enabled and disabled button cursors are distinguishable", async () => {
+  const styles = await readFile(join(projectRoot, "styles.css"), "utf8");
+  assert.match(styles, /\.button\s*\{[^}]*cursor:\s*pointer[^}]*pointer-events:\s*auto/);
+  assert.match(styles, /\.button:disabled\s*\{[^}]*cursor:\s*not-allowed[^}]*opacity:/);
+  assert.match(styles, /\.button:before\s*\{[^}]*pointer-events:none/);
 }]);
 
 test("enquiry flow", async (t) => {
