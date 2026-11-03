@@ -4,8 +4,9 @@
   const form = document.querySelector("[data-form]");
   if (!form) return;
 
-  const phone = form.querySelector("#q-phone");
-  if (phone) {
+  const initializeCountryPicker = () => {
+    const phone = form.querySelector("#q-phone");
+    if (!phone) return;
     const countryCodes = [
       ["Afghanistan", "+93"], ["Albania", "+355"], ["Algeria", "+213"], ["American Samoa", "+1"],
       ["Andorra", "+376"], ["Angola", "+244"], ["Anguilla", "+1"], ["Antigua and Barbuda", "+1"],
@@ -237,11 +238,10 @@
     phoneGroup.append(countryPicker, phone, countryCode);
     phone.setAttribute("autocomplete", "tel-national");
     phone.setAttribute("placeholder", "Phone number");
-  }
+  };
 
   const packageField = form.querySelector("#q-package");
   const sourceField = form.querySelector("#q-source");
-  const query = new URLSearchParams(window.location.search);
 
   const normalizePackageValue = (value) => {
     if (typeof value !== "string") return "";
@@ -289,51 +289,42 @@
     return map[normalized] || "other";
   };
 
-  const requestedPackage = normalizePackageValue(
-    query.get("package") || query.get("service") || query.get("offer") || "",
-  );
-  if (packageField && requestedPackage) {
-    packageField.value = requestedPackage;
-  }
+  const initializeQueryPrefill = () => {
+    const query = new URLSearchParams(window.location.search);
+    const requestedPackage = normalizePackageValue(
+      query.get("package") || query.get("service") || query.get("offer") || "",
+    );
+    if (packageField && requestedPackage) {
+      packageField.value = requestedPackage;
+    }
 
-  const requestedSource = normalizeSourceValue(
-    query.get("source") || query.get("utm_source") || query.get("ref") || "website",
-  );
-  if (sourceField) {
-    sourceField.value = requestedSource;
-  }
+    const requestedSource = normalizeSourceValue(
+      query.get("source") || query.get("utm_source") || query.get("ref") || "website",
+    );
+    if (sourceField) {
+      sourceField.value = requestedSource;
+    }
+  };
 
   const submit = form.querySelector('button[type="submit"]');
   const summary = form.querySelector("[data-error-summary]");
   const list = form.querySelector("[data-error-list]");
   const live = form.querySelector("[data-live]");
   const success = form.querySelector("[data-form-success]");
+  const turnstileStatus = form.querySelector("[data-turnstile-status]");
   let isSubmitting = false;
   const turnstileContainer = form.querySelector("#enquiry-turnstile");
+  let turnstileState = "unavailable";
   let resetTurnstile = () => {};
-
-  if (turnstileContainer && window.turnstile) {
-    let turnstileWidgetId = null;
-    let renderVersion = 0;
-    resetTurnstile = () => {
-      if (turnstileWidgetId !== null) window.turnstile.reset(turnstileWidgetId);
-    };
-    const renderTurnstile = () => {
-      const currentVersion = ++renderVersion;
-      window.turnstile.ready(() => {
-        if (currentVersion !== renderVersion) return;
-        if (turnstileWidgetId !== null) window.turnstile.remove(turnstileWidgetId);
-        turnstileWidgetId = window.turnstile.render(turnstileContainer, {
-          sitekey: turnstileContainer.dataset.sitekey,
-          action: turnstileContainer.dataset.action,
-          theme: document.documentElement.dataset.theme === "dark" ? "dark" : "light",
-        });
-      });
-    };
-
-    renderTurnstile();
-    window.addEventListener("nearly:themechange", renderTurnstile);
-  }
+  const securityCheckError = "The security check couldn't load. Please refresh the page or email madebynearly@gmail.com.";
+  const reportInitializationFailure = (feature) => {
+    console.error(`[NEARLY Enquiry] ${feature} failed.`);
+  };
+  const setTurnstileStatus = (message) => {
+    if (!turnstileStatus) return;
+    turnstileStatus.textContent = message;
+    turnstileStatus.hidden = !message;
+  };
 
   const showError = (message) => {
     if (summary && list) {
@@ -347,94 +338,208 @@
     if (live) live.textContent = message;
   };
 
-  form.addEventListener("invalid", (event) => {
-    if (live && event.target.validationMessage) {
-      live.textContent = event.target.validationMessage;
-    }
-  }, true);
+  try {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (isSubmitting) return;
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (isSubmitting) return;
+      if (!form.reportValidity()) {
+        if (live) live.textContent = "Please correct the highlighted fields before sending your enquiry.";
+        return;
+      }
 
-    if (!form.reportValidity()) {
-      if (live) live.textContent = "Please correct the highlighted fields before sending your enquiry.";
-      return;
-    }
+      const packageValue = packageField ? packageField.value.trim() : "";
+      if (packageValue && !["landing-page", "starter-website", "business-website", "care-plan", "not-sure"].includes(packageValue)) {
+        showError("Please choose a valid service or leave the field blank.");
+        return;
+      }
 
-    const packageValue = packageField ? packageField.value.trim() : "";
-    if (packageValue && !["landing-page", "starter-website", "business-website", "care-plan", "not-sure"].includes(packageValue)) {
-      showError("Please choose a valid service or leave the field blank.");
-      return;
-    }
+      if (turnstileState !== "ready") {
+        showError(turnstileState === "loading"
+          ? "The security check is still loading. Please wait a moment and try again."
+          : securityCheckError);
+        return;
+      }
+      const formData = new FormData(form);
+      const turnstileToken = formData.get("cf-turnstile-response");
+      if (typeof turnstileToken !== "string" || !turnstileToken.trim()) {
+        showError("Please complete the security check before sending your enquiry.");
+        return;
+      }
 
-    const formData = new FormData(form);
-    const turnstileToken = formData.get("cf-turnstile-response");
-    if (typeof turnstileToken !== "string" || !turnstileToken.trim()) {
-      showError("Please complete the security check before sending your enquiry.");
-      return;
-    }
+      if (summary && list) {
+        list.replaceChildren();
+        summary.hidden = true;
+      }
+      if (success) success.hidden = true;
 
-    if (summary && list) {
-      list.replaceChildren();
-      summary.hidden = true;
-    }
-    if (success) success.hidden = true;
+      const previousLabel = submit.textContent;
+      isSubmitting = true;
+      submit.disabled = true;
+      submit.textContent = "Sending…";
+      if (live) live.textContent = "Sending your enquiry…";
 
-    const previousLabel = submit.textContent;
-    isSubmitting = true;
-    submit.disabled = true;
-    submit.textContent = "Sending…";
-    if (live) live.textContent = "Sending your enquiry…";
-
-    try {
-      const response = await fetch(form.action, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(Object.fromEntries(formData)),
-      });
-      let result;
       try {
-        result = await response.json();
-      } catch {
-        throw new Error("The server returned an unreadable response. We couldn't confirm delivery; please try again or email madebynearly@gmail.com.");
-      }
-
-      if (!response.ok || !result || typeof result !== "object" || result.success !== true) {
-        const code = result && (result.error?.code || result.code);
-        const message = code === "configuration_missing"
-          ? "The enquiry form is not configured yet. Please email madebynearly@gmail.com directly."
-          : result?.message || "The server couldn't confirm your enquiry. Please try again or email madebynearly@gmail.com.";
-        throw new Error(message);
-      }
-
-      form.reset();
-      if (success) {
-        const successMessage = success.querySelector("p");
-        if (successMessage) {
-          successMessage.textContent = result.warning
-            ? result.warning
-            : "Your enquiry has been received. We'll reply by email within one working day. If you don't see our reply, please check your spam folder.";
+        const response = await fetch(form.action, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(Object.fromEntries(formData)),
+        });
+        let result;
+        try {
+          result = await response.json();
+        } catch {
+          throw new Error("The server returned an unreadable response. We couldn't confirm delivery; please try again or email madebynearly@gmail.com.");
         }
-        success.hidden = false;
-        success.focus();
+
+        if (!response.ok || !result || typeof result !== "object" || result.success !== true) {
+          const code = result && (result.error?.code || result.code);
+          const message = code === "configuration_missing"
+            ? "The enquiry form is not configured yet. Please email madebynearly@gmail.com directly."
+            : result?.message || "The server couldn't confirm your enquiry. Please try again or email madebynearly@gmail.com.";
+          throw new Error(message);
+        }
+
+        form.reset();
+        if (success) {
+          const successMessage = success.querySelector("p");
+          if (successMessage) {
+            successMessage.textContent = result.warning
+              ? result.warning
+              : "Your enquiry has been received. We'll reply by email within one working day. If you don't see our reply, please check your spam folder.";
+          }
+          success.hidden = false;
+          success.focus();
+        }
+        if (live) {
+          live.textContent = result.warning
+            ? result.warning
+            : "Your enquiry was received. We'll reply by email within one working day. Check your spam folder if you don't see our reply.";
+        }
+      } catch (error) {
+        const message = error instanceof Error && error.name === "Error"
+          ? error.message
+          : "We couldn't confirm your enquiry was sent. Please try again or email madebynearly@gmail.com.";
+        showError(message);
+      } finally {
+        isSubmitting = false;
+        submit.disabled = false;
+        submit.textContent = previousLabel;
+        resetTurnstile();
       }
-      if (live) {
-        live.textContent = result.warning
-          ? result.warning
-          : "Your enquiry was received. We'll reply by email within one working day. Check your spam folder if you don't see our reply.";
-      }
-    } catch (error) {
-      const message = error instanceof Error && error.name === "Error"
-        ? error.message
-        : "We couldn't confirm your enquiry was sent. Please try again or email madebynearly@gmail.com.";
-      showError(message);
-    } finally {
-      isSubmitting = false;
-      submit.disabled = false;
-      submit.textContent = previousLabel;
-      resetTurnstile();
-    }
-  });
+    });
+  } catch {
+    form.dataset.externalSubmitState = "failed";
+    reportInitializationFailure("Core submit handler registration");
+    return;
+  }
   form.dataset.externalSubmitReady = "true";
+  form.dataset.externalSubmitState = "ready";
+
+  try {
+    form.addEventListener("invalid", (event) => {
+      if (live && event.target.validationMessage) {
+        live.textContent = event.target.validationMessage;
+      }
+    }, true);
+  } catch {
+    reportInitializationFailure("Form validation feedback");
+  }
+
+  try {
+    initializeCountryPicker();
+  } catch {
+    reportInitializationFailure("Country calling-code picker initialization");
+  }
+
+  try {
+    initializeQueryPrefill();
+  } catch {
+    reportInitializationFailure("Query-string form prefilling");
+  }
+
+  const initializeTurnstile = () => {
+    if (!turnstileContainer || !window.turnstile) {
+      turnstileState = "unavailable";
+      setTurnstileStatus(securityCheckError);
+      reportInitializationFailure(turnstileContainer ? "Turnstile API availability" : "Turnstile container");
+      return;
+    }
+
+    const turnstile = window.turnstile;
+    let turnstileWidgetId = null;
+    let renderVersion = 0;
+    turnstileState = "loading";
+    setTurnstileStatus("Loading the security check…");
+
+    resetTurnstile = () => {
+      if (turnstileWidgetId === null) return;
+      try {
+        turnstile.reset(turnstileWidgetId);
+      } catch {
+        reportInitializationFailure("Turnstile reset");
+      }
+    };
+
+    const failTurnstile = (feature) => {
+      turnstileState = "failed";
+      setTurnstileStatus(securityCheckError);
+      reportInitializationFailure(feature);
+    };
+
+    const renderTurnstile = () => {
+      const currentVersion = ++renderVersion;
+      turnstileState = "loading";
+      setTurnstileStatus("Loading the security check…");
+      try {
+        turnstile.ready(() => {
+          if (currentVersion !== renderVersion) return;
+          try {
+            if (turnstileWidgetId !== null) {
+              turnstile.remove(turnstileWidgetId);
+              turnstileWidgetId = null;
+            }
+            const widgetId = turnstile.render(turnstileContainer, {
+              sitekey: turnstileContainer.dataset.sitekey,
+              action: turnstileContainer.dataset.action,
+              theme: document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+            });
+            if (widgetId === null || widgetId === undefined) {
+              throw new Error("Turnstile did not return a widget identifier.");
+            }
+            turnstileWidgetId = widgetId;
+            turnstileState = "ready";
+            setTurnstileStatus("");
+          } catch {
+            failTurnstile("Turnstile widget rendering");
+          }
+        });
+      } catch {
+        if (currentVersion === renderVersion) {
+          failTurnstile("Turnstile API readiness");
+        }
+      }
+    };
+
+    renderTurnstile();
+    try {
+      window.addEventListener("nearly:themechange", () => {
+        try {
+          renderTurnstile();
+        } catch {
+          failTurnstile("Turnstile theme update");
+        }
+      });
+    } catch {
+      reportInitializationFailure("Turnstile theme update listener");
+    }
+  };
+
+  try {
+    initializeTurnstile();
+  } catch {
+    turnstileState = "failed";
+    setTurnstileStatus(securityCheckError);
+    reportInitializationFailure("Turnstile initialization");
+  }
 })();
